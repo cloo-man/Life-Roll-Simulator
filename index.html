@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Life Roll Simulator — Single Result</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; }
+  h1 { margin-bottom: 0.25rem; }
+  .sub { color: #555; margin-top: 0; }
+  button { padding: 10px 16px; font-size: 16px; border-radius: 8px; border: 1px solid #ccc; cursor: pointer; }
+  button:hover { filter: brightness(0.98); }
+  .row { display: flex; gap: 12px; align-items: center; margin: 12px 0 20px; flex-wrap: wrap; }
+  .card { border: 1px solid #e3e3e3; border-radius: 12px; padding: 16px; margin: 12px 0; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .muted { color: #666; }
+  .small { font-size: 13px; }
+  .result { font-size: 18px; }
+  .list { margin: 6px 0 0 18px; }
+  .badge { border: 1px solid #e0e0e0; border-radius: 999px; padding: 2px 10px; font-size: 12px; background: #fafafa; }
+  #debug { margin-top: 8px; color: #b00020; font-size: 13px; white-space: pre-wrap; }
+  #clicks { font-size: 12px; color: #333; }
+</style>
+</head>
+<body>
+  <h1>Life Roll Simulator</h1>
+  <p class="sub">Single-result mode: each click replaces the previous roll.</p>
+
+  <div class="row">
+    <button id="rollBtn">🎲 Roll Character</button>
+    <span id="clicks" class="small muted">Clicks: 0</span>
+  </div>
+
+  <div id="debug" class="small"></div>
+  <div id="output"></div>
+
+<script>
+(function() {
+  var clicked = 0;
+  function logDebug(msg) {
+    var debugEl = document.getElementById('debug');
+    if (debugEl) debugEl.textContent = String(msg || '');
+  }
+
+  function d(n) { return Math.floor(Math.random() * n) + 1; }
+  function coin() { return Math.random() < 0.5 ? 'heads' : 'tails'; }
+
+  function rollGender() { const r = d(100); return { roll: r, gender: r <= 50 ? 'Male' : 'Female' }; }
+  function rollInfancy() {
+    const r = d(100);
+    if (r <= 30) { const rAge = d(5); return { survived: false, roll: r, deathAge: rAge - 1 }; }
+    return { survived: true, roll: r };
+  }
+  function rollChildhood() {
+    const r = d(100);
+    if (r <= 15) { const rAge = d(10); return { survived: false, roll: r, deathAge: 5 + rAge }; }
+    return { survived: true, roll: r };
+  }
+  function rollAdultAge() {
+    const r = d(100);
+    let minAge = 16, bracket = '16–25', die = 10;
+    if (r >= 16 && r <= 35) { minAge = 26; bracket = '26–35'; die = 10; }
+    else if (r >= 36 && r <= 55) { minAge = 36; bracket = '36–45'; die = 10; }
+    else if (r >= 56 && r <= 75) { minAge = 46; bracket = '46–55'; die = 10; }
+    else if (r >= 76 && r <= 90) { minAge = 56; bracket = '56–65'; die = 10; }
+    else if (r >= 91 && r <= 98) { minAge = 66; bracket = '66–80'; die = 15; }
+    else if (r >= 99) { minAge = 81; bracket = '81–95'; die = 15; }
+    const rExact = d(die);
+    return { roll: r, bracket, die, exactRoll: rExact, age: minAge + (rExact - 1) };
+  }
+  function rollChildrenCount(deathAge) {
+    const r = d(100);
+    let rolled = 0, special = null;
+    if (r <= 40) rolled = 0;
+    else if (r <= 60) rolled = 1;
+    else if (r <= 70) rolled = 2;
+    else if (r <= 80) rolled = 3;
+    else if (r <= 85) rolled = 4;
+    else if (r <= 90) rolled = 5;
+    else if (r <= 94) rolled = 6;
+    else if (r <= 97) rolled = 7;
+    else if (r <= 99) rolled = 8;
+    else { const c = coin(); rolled = c === 'heads' ? 9 : 10; special = c; }
+
+    const latest = Math.min(45, deathAge);
+    const earliest = 16;
+    const fertileWindowYears = latest >= earliest ? (latest - earliest + 1) : 0;
+    const final = Math.min(rolled, fertileWindowYears);
+    return { roll: r, rolled, special, final, fertileWindowYears };
+  }
+  function assignChildrenBirthAges(finalChildren, deathAge) {
+    const earliest = 16;
+    const latest = Math.min(45, deathAge);
+    if (finalChildren <= 0 || latest < earliest) return [];
+    const span = (latest - earliest + 1);
+    if (finalChildren === span) return Array.from({length: span}, (_,i)=>earliest+i);
+    const step = span > 1 && finalChildren > 1 ? (span - 1) / (finalChildren - 1) : 0;
+    const ages = [];
+    for (let i = 0; i < finalChildren; i++) ages.push(Math.round(earliest + step * i));
+    return ages.sort((a,b)=>a-b);
+  }
+
+  function row(label, value) { return `<div><span class="muted">${label}:</span> <span class="mono">${value}</span></div>`; }
+
+  function renderResult(model) {
+    const container = document.createElement('div');
+    container.className = 'card';
+    const parts = [];
+
+    parts.push(`<div class="grid">
+      <div>${row('Gender', model.gender.gender)}</div>
+      <div>${row('Gender roll', model.gender.roll)}</div>
+    </div>`);
+
+    parts.push(`<div class="grid">
+      <div>${row('Infancy', model.infancy.survived ? 'survived' : 'died')}</div>
+      <div>${row('Infancy roll', model.infancy.roll)}</div>
+    </div>`);
+
+    if (!model.infancy.survived) {
+      parts.push(`<div class="result">💀 Died in infancy at age <b>${model.infancy.deathAge}</b>.</div>`);
+    } else {
+      parts.push(`<div class="grid">
+        <div>${row('Childhood', model.childhood.survived ? 'survived' : 'died')}</div>
+        <div>${row('Childhood roll', model.childhood.roll)}</div>
+      </div>`);
+
+      if (!model.childhood.survived) {
+        parts.push(`<div class="result">💀 Died in childhood at age <b>${model.childhood.deathAge}</b>.</div>`);
+      } else {
+        parts.push(`<div class="grid">
+          <div>${row('Adult bracket', model.adult.bracket)}</div>
+          <div>${row('Bracket roll', model.adult.roll)}</div>
+        </div>`);
+        parts.push(`<div class="grid">
+          <div>${row('Exact age die', 'd' + model.adult.die)}</div>
+          <div>${row('Exact age roll', model.adult.exactRoll)}</div>
+        </div>`);
+        parts.push(`<div class="result">🪦 Death age: <b>${model.adult.age}</b></div>`);
+
+        parts.push(`<div>👶 Children: <span class="badge">${model.kids.final}</span> <span class="small muted">(window years: ${model.kids.fertileWindowYears})</span></div>`);
+
+        if (model.births && model.births.length) {
+          const lis = model.births.map((age,i)=>`<li>Child ${i+1}: parent age <b>${age}</b></li>`).join('');
+          parts.push(`<div>📅 Birth ages:<ul class="list">${lis}</ul></div>`);
+        }
+      }
+    }
+
+    container.innerHTML = parts.join('\n');
+    const out = document.getElementById('output');
+    out.innerHTML = ''; // single-result: clear previous
+    out.appendChild(container);
+  }
+
+  function runOnce() {
+    try {
+      clicked += 1;
+      var clicksEl = document.getElementById('clicks');
+      if (clicksEl) clicksEl.textContent = 'Clicks: ' + clicked;
+      const gender = rollGender();
+      const infancy = rollInfancy();
+      if (!infancy.survived) { renderResult({ gender, infancy }); return; }
+      const childhood = rollChildhood();
+      if (!childhood.survived) { renderResult({ gender, infancy, childhood }); return; }
+      const adult = rollAdultAge();
+      const kids = rollChildrenCount(adult.age);
+      const births = assignChildrenBirthAges(kids.final, adult.age);
+      renderResult({ gender, infancy, childhood, adult, kids, births });
+    } catch (e) {
+      logDebug('Runtime error: ' + (e && e.message ? e.message : String(e)));
+    }
+  }
+
+  function bind() {
+    var btn = document.getElementById('rollBtn');
+    if (!btn) { logDebug('Error: roll button not found.'); return; }
+    btn.addEventListener('click', runOnce, { passive: true });
+    logDebug('Ready.');
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind);
+  else bind();
+})();
+</script>
+</body>
+</html>
